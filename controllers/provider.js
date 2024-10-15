@@ -1,7 +1,4 @@
 const nodemailer = require("nodemailer");
-const bcrypt = require("bcrypt");
-
-const salt = process.env.BCRYPT_SALT;
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000);
@@ -33,6 +30,195 @@ function sendEmail(email, otp) {
       console.log("OTP Sent: ", info.response);
     }
   });
+}
+
+async function getAllApplicants(benefits) {
+  const array = await Promise.all(
+    benefits.map(async (benefit) => {
+      const applicant_entries = await fetch(
+        `${process.env.STRAPI_URL}/api/applications?filters[content_id][$eq]=${benefit.id}`
+      );
+      const applicant_entries_json = await applicant_entries.json();
+      return applicant_entries_json.data;
+    })
+  );
+
+  return array.flat();
+}
+
+async function getCountOfApplicantsPerBenefit(benefits) {
+  const counts = await Promise.all(
+    benefits.map(async (benefit) => {
+      const applicant_entries = await fetch(
+        `${process.env.STRAPI_URL}/api/applications?filters[content_id][$eq]=${benefit.id}`
+      );
+      const applicant_entries_json = await applicant_entries.json();
+      return {
+        id: benefit.id,
+        title: benefit.name,
+        totalApplications: applicant_entries_json.meta.pagination.total,
+        totalDisbursed: 100000,
+      };
+    })
+  );
+
+  return counts;
+}
+
+async function getBenefitSummary(benefits) {
+  const summary = await Promise.all(
+    benefits.map(async (benefit) => {
+      const applicant_entries = await fetch(
+        `${process.env.STRAPI_URL}/api/applications?filters[content_id][$eq]=${benefit.id}`
+      );
+      const applicant_entries_json = await applicant_entries.json();
+      return {
+        id: benefit.id,
+        name: benefit.name,
+        applicants: applicant_entries_json.meta.pagination.total,
+        approved: applicant_entries_json.data.filter(
+          (obj) => obj.application_status === "approved"
+        ).length,
+        rejected: applicant_entries_json.data.filter(
+          (obj) => obj.application_status === "rejected"
+        ).length,
+        disbursalPending: applicant_entries_json.meta.pagination.total,
+        deadline: benefit.application_deadline,
+        status: "active",
+      };
+    })
+  );
+
+  return summary;
+}
+
+async function getApplicationOverview(id) {
+  let benefitsData = await fetch(
+    `${process.env.STRAPI_URL}/api/scholarships?filters[provider][id][$eq]=${id}`
+  );
+  benefitsData = await benefitsData.json();
+
+  let benefits = benefitsData.data;
+
+  let allApplicants = await getAllApplicants(benefits);
+
+  const submittedCount = allApplicants.filter(
+    (obj) => obj.application_status === "submitted"
+  ).length;
+  const approvedCount = allApplicants.filter(
+    (obj) => obj.application_status === "approved"
+  ).length;
+  const rejectedCount = allApplicants.filter(
+    (obj) => obj.application_status === "rejected"
+  ).length;
+
+  const application_overview = [
+    {
+      id: 1,
+      label: "Total Applicants",
+      count: submittedCount,
+    },
+    {
+      id: 2,
+      label: "Accepted Applicants",
+      count: approvedCount,
+    },
+    {
+      id: 3,
+      label: "Rejected Applicants",
+      count: rejectedCount,
+    },
+  ];
+
+  return application_overview;
+}
+
+async function getTop3benefits(id) {
+  let benefitsData = await fetch(
+    `${process.env.STRAPI_URL}/api/scholarships?filters[provider][id][$eq]=${id}`
+  );
+  benefitsData = await benefitsData.json();
+
+  let benefits = benefitsData.data;
+  let counts = await getCountOfApplicantsPerBenefit(benefits);
+
+  counts.sort((a, b) => b.totalApplications - a.totalApplications);
+
+  return counts;
+}
+
+async function getAllBenefitsSummary(id) {
+  let benefitsData = await fetch(
+    `${process.env.STRAPI_URL}/api/scholarships?filters[provider][id][$eq]=${id}`
+  );
+  benefitsData = await benefitsData.json();
+
+  let benefits = benefitsData.data;
+  const summary = await getBenefitSummary(benefits);
+  return summary;
+}
+
+async function getVisualData(id) {
+  let benefitsData = await fetch(
+    `${process.env.STRAPI_URL}/api/scholarships?filters[provider][id][$eq]=${id}`
+  );
+  benefitsData = await benefitsData.json();
+
+  let benefits = benefitsData.data;
+  const applicants = await getAllApplicants(benefits);
+
+  const gender = [
+    {
+      label: "male",
+      count: applicants.filter((obj) => obj.gender === "male").length,
+    },
+    {
+      label: "female",
+      count: applicants.filter((obj) => obj.gender === "female").length,
+    },
+    {
+      label: "other",
+      count: applicants.filter((obj) => obj.gender === "other").length,
+    },
+  ];
+
+  const caste = [
+    {
+      label: "sc",
+      count: applicants.filter((obj) => obj.caste === "sc").length,
+    },
+    {
+      label: "st",
+      count: applicants.filter((obj) => obj.caste === "st").length,
+    },
+    {
+      label: "obc",
+      count: applicants.filter((obj) => obj.caste === "obc").length,
+    },
+    {
+      label: "general",
+      count: applicants.filter((obj) => obj.caste === "general").length,
+    },
+  ];
+
+  const ratio = [
+    {
+      label: "Day scholar",
+      count: applicants.filter((obj) => obj.resident_type === "Dayscholar")
+        .length,
+    },
+    {
+      label: "st",
+      count: applicants.filter((obj) => obj.resident_type === "Hosteler")
+        .length,
+    },
+  ];
+
+  return {
+    gender,
+    caste,
+    ratio,
+  };
 }
 
 exports.registerProvider = async (req, res) => {
@@ -301,6 +487,31 @@ exports.otpForLog = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error in OTP...",
+      error,
+    });
+  }
+};
+
+exports.getOverview = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const application_overview = await getApplicationOverview(id);
+    const top_3_benefits = await getTop3benefits(id);
+    const benefit_summary = await getAllBenefitsSummary(id);
+    const visualData = await getVisualData(id);
+
+    return res.status(200).json({
+      application_overview,
+      top_3_benefits,
+      benefit_summary,
+      visualData,
+    });
+  } catch (error) {
+    console.log("Error in Application Overview: ", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error in Application Overview",
       error,
     });
   }
