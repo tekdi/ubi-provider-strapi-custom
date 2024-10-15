@@ -180,7 +180,7 @@ exports.login = async (req, res) => {
       method: "DELETE",
     });
 
-    return res.status(500).json({
+    return res.status(200).json({
       success: true,
       message: "Logged in successfully...",
       result,
