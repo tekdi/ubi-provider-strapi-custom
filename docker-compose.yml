@@ -1,0 +1,13 @@
+version: "3"
+services:
+  provider_api:
+    container_name: provider_api
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORT: ${PORT}
+      STRAPI_URL: ${STRAPI_URL}
+      EMAIL_PASS: ${EMAIL_PASS}
+    ports:
+      - "2000:2000"
