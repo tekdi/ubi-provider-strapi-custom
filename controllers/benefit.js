@@ -69,7 +69,7 @@ exports.getBenefitDetails = async (req, res) => {
   try {
     const { documentId } = req.params;
 
-    const jwtId = req.jwtId;
+    // const jwtId = req.jwtId;
 
     if (!documentId || typeof documentId !== "string") {
       return res.status(400).json({
@@ -91,13 +91,13 @@ exports.getBenefitDetails = async (req, res) => {
     }
     benefit = benefit.data;
 
-    if (jwtId !== benefit.provider.id) {
-      return res.status(401).json({
-        success: false,
-        message:
-          "Unauthorized to access this resource (Login with appropriate credentials)",
-      });
-    }
+    // if (jwtId !== benefit.provider.id) {
+    //   return res.status(401).json({
+    //     success: false,
+    //     message:
+    //       "Unauthorized to access this resource (Login with appropriate credentials)",
+    //   });
+    // }
 
     return res.status(200).json({
       success: true,

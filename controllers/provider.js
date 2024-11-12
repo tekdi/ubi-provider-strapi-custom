@@ -43,6 +43,76 @@ function sendEmail(email, otp) {
   });
 }
 
+async function checkUser(email) {
+  let data = await fetch(
+    `${process.env.STRAPI_URL}/api/users?filters[email][$eq]=${email}`
+  );
+  data = await data.json();
+
+  return data.length !== 0;
+}
+
+async function saveOTP(email, otp, name) {
+  const body = {
+    email,
+    otp,
+    name,
+    expiry: Date.now() + 3600000,
+  };
+
+  let result = await fetch(`${process.env.STRAPI_URL}/api/otps`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      data: body,
+    }),
+  });
+  result = await result.json();
+
+  return result;
+}
+
+async function checkOTP(email, otp) {
+  let data = await fetch(
+    `${process.env.STRAPI_URL}/api/otps?filters[email][$eq]=${email}&sort[0]=createdAt:desc`
+  );
+  data = await data.json();
+
+  if (data.data.length == 0) {
+    return {
+      success: false,
+      message: "OTP not matched",
+    };
+  }
+
+  const row = data.data[0];
+  console.log(row);
+
+  const expiry = new Date(row.expiry);
+  const now = new Date();
+
+  if (expiry < now) {
+    return {
+      success: false,
+      message: "OTP expired",
+    };
+  }
+
+  if (row.otp !== otp) {
+    return {
+      success: false,
+      message: "OTP not matched",
+    };
+  }
+
+  return {
+    success: true,
+    row,
+  };
+}
+
 async function getAllApplicants(benefits) {
   const array = await Promise.all(
     benefits.map(async (benefit) => {
@@ -272,93 +342,97 @@ async function getVisualData(id) {
     let benefits = benefitsData.data;
     const applicants = await getAllApplicants(benefits);
 
+    const maleCount = applicants.filter(
+        (obj) => obj.gender.toLocaleLowerCase() === "male"
+      ).length,
+      femaleCount = applicants.filter(
+        (obj) => obj.gender.toLocaleLowerCase() === "female"
+      ).length,
+      otherGenderCount = applicants.length - maleCount - femaleCount;
     const gender = [
       {
         label: "Male",
-        count: applicants.filter(
-          (obj) => obj.gender.toLocaleLowerCase() === "male"
-        ).length,
+        count: maleCount,
       },
       {
         label: "Female",
-        count: applicants.filter(
-          (obj) => obj.gender.toLocaleLowerCase() === "female"
-        ).length,
+        count: femaleCount,
       },
       {
         label: "Other",
-        count: applicants.filter(
-          (obj) => obj.gender.toLocaleLowerCase() === "other"
-        ).length,
+        count: otherGenderCount,
       },
     ];
 
+    const scCount = applicants.filter(
+        (obj) => obj.caste.toLocaleLowerCase() === "sc"
+      ).length,
+      stCount = applicants.filter(
+        (obj) => obj.caste.toLocaleLowerCase() === "st"
+      ).length,
+      obcCount = applicants.filter(
+        (obj) => obj.caste.toLocaleLowerCase() === "obc"
+      ).length,
+      generalCount = applicants.filter(
+        (obj) => obj.caste.toLocaleLowerCase() === "general"
+      ).length,
+      otherCasteCount =
+        applicants.length - scCount - stCount - obcCount - generalCount;
     const caste = [
       {
         label: "SC",
-        count: applicants.filter(
-          (obj) => obj.caste.toLocaleLowerCase() === "sc"
-        ).length,
+        count: scCount,
       },
       {
         label: "ST",
-        count: applicants.filter(
-          (obj) => obj.caste.toLocaleLowerCase() === "st"
-        ).length,
+        count: stCount,
       },
       {
         label: "OBC",
-        count: applicants.filter(
-          (obj) => obj.caste.toLocaleLowerCase() === "obc"
-        ).length,
+        count: obcCount,
       },
       {
         label: "General",
-        count: applicants.filter(
-          (obj) => obj.caste.toLocaleLowerCase() === "general"
-        ).length,
+        count: generalCount,
       },
       {
         label: "Other",
-        count: applicants.filter(
-          (obj) =>
-            obj.caste.toLocaleLowerCase() !== "general" &&
-            obj.caste.toLocaleLowerCase() !== "sc" &&
-            obj.caste.toLocaleLowerCase() !== "st" &&
-            obj.caste.toLocaleLowerCase() !== "obc"
-        ).length,
+        count: otherCasteCount,
       },
     ];
 
+    const dayscholarCount = applicants.filter(
+        (obj) => obj.resident_type === "Dayscholar"
+      ).length,
+      hostellerCount = applicants.filter(
+        (obj) => obj.resident_type === "Hosteler"
+      ).length,
+      otherResidentCount = applicants.length - dayscholarCount - hostellerCount;
     const ratio = [
       {
         label: "Dayscholar",
-        count: applicants.filter((obj) => obj.resident_type === "Dayscholar")
-          .length,
+        count: dayscholarCount,
       },
       {
         label: "Hosteler",
-        count: applicants.filter((obj) => obj.resident_type === "Hosteler")
-          .length,
+        count: hostellerCount,
       },
       {
         label: "Other",
-        count: applicants.filter(
-          (obj) =>
-            obj.resident_type !== "Hosteler" &&
-            obj.resident_type !== "Dayscholar"
-        ).length,
+        count: otherResidentCount,
       },
     ];
 
+    const std9Count = applicants.filter((obj) => obj.class === 9).length,
+      std10Count = applicants.filter((obj) => obj.class === 10).length;
     const standard = [
       {
         label: "9th Std.",
-        count: applicants.filter((obj) => obj.class === 9).length,
+        count: std9Count,
       },
       {
         label: "10th Std.",
-        count: applicants.filter((obj) => obj.class === 10).length,
+        count: std10Count,
       },
     ];
 
@@ -383,36 +457,14 @@ exports.registerProvider = async (req, res) => {
   const { email, otp } = req.body;
 
   try {
-    let data = await fetch(
-      `${process.env.STRAPI_URL}/api/otps?filters[email][$eq]=${email}&sort[0]=createdAt:desc`
-    );
-    data = await data.json();
-
-    if (data.data.length == 0) {
+    const otpCheck = await checkOTP(email, otp);
+    if (!otpCheck.success) {
       return res.status(400).json({
-        success: false,
-        message: "OTP not matched",
+        success: otpCheck.success,
+        message: otpCheck.message,
       });
     }
-
-    const row = data.data[0];
-
-    const expiry = new Date(row.expiry);
-    const now = new Date();
-
-    if (expiry < now) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP expired",
-      });
-    }
-
-    if (row.otp !== otp) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP not matched",
-      });
-    }
+    const row = otpCheck.row;
 
     const password = generatePassword(row.name);
     let result = await fetch(
@@ -463,36 +515,14 @@ exports.login = async (req, res) => {
   const { email, otp } = req.body;
 
   try {
-    let data = await fetch(
-      `${process.env.STRAPI_URL}/api/otps?filters[email][$eq]=${email}&sort[0]=createdAt:desc`
-    );
-    data = await data.json();
-
-    if (data.data.length == 0) {
+    const otpCheck = await checkOTP(email, otp);
+    if (!otpCheck.success) {
       return res.status(400).json({
-        success: false,
-        message: "OTP not matched",
+        success: otpCheck.success,
+        message: otpCheck.message,
       });
     }
-
-    const row = data.data[0];
-
-    const expiry = new Date(row.expiry);
-    const now = new Date();
-
-    if (expiry < now) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP expired",
-      });
-    }
-
-    if (row.otp !== otp) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP not matched",
-      });
-    }
+    const row = otpCheck.row;
 
     data = await fetch(
       `${process.env.STRAPI_URL}/api/users?filters[email][$eq]=${email}`
@@ -545,12 +575,8 @@ exports.otpForReg = async (req, res) => {
   try {
     const { email, name } = req.body;
 
-    let data = await fetch(
-      `${process.env.STRAPI_URL}/api/users?filters[email][$eq]=${email}`
-    );
-    data = await data.json();
-
-    if (data.length != 0) {
+    const userExists = await checkUser(email);
+    if (userExists) {
       return res.status(400).json({
         success: false,
         message: "Provider with this email already exists, try login",
@@ -559,23 +585,7 @@ exports.otpForReg = async (req, res) => {
 
     const otp = generateOTP();
 
-    const body = {
-      email,
-      name,
-      otp,
-      expiry: Date.now() + 3600000,
-    };
-
-    let result = await fetch(`${process.env.STRAPI_URL}/api/otps`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        data: body,
-      }),
-    });
-    result = await result.json();
+    const result = await saveOTP(email, otp, name);
 
     if (result.error) {
       console.log("Strapi Error: ", result.error);
@@ -606,12 +616,8 @@ exports.otpForLog = async (req, res) => {
   const { email } = req.body;
 
   try {
-    let data = await fetch(
-      `${process.env.STRAPI_URL}/api/users?filters[email][$eq]=${email}`
-    );
-    data = await data.json();
-
-    if (data.length == 0) {
+    const userExists = await checkUser(email);
+    if (!userExists) {
       return res.status(400).json({
         success: false,
         message: "Provider with this email does not exist, try registering",
@@ -620,22 +626,7 @@ exports.otpForLog = async (req, res) => {
 
     const otp = generateOTP();
 
-    const body = {
-      email,
-      otp,
-      expiry: Date.now() + 3600000,
-    };
-
-    let result = await fetch(`${process.env.STRAPI_URL}/api/otps`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        data: body,
-      }),
-    });
-    result = await result.json();
+    const result = await saveOTP(email, otp);
 
     if (result.error) {
       console.log("Strapi Error: ", result.error);
@@ -664,15 +655,15 @@ exports.otpForLog = async (req, res) => {
 exports.getOverview = async (req, res) => {
   try {
     const { id } = req.params;
-    const jwtId = req.jwtId;
+    // const jwtId = req.jwtId;
 
-    if (Number(id) !== jwtId) {
-      return res.status(401).json({
-        success: false,
-        message:
-          "Unauthorized to access this resourse (Login with appropriate credentials)",
-      });
-    }
+    // if (Number(id) !== jwtId) {
+    //   return res.status(401).json({
+    //     success: false,
+    //     message:
+    //       "Unauthorized to access this resourse (Login with appropriate credentials)",
+    //   });
+    // }
 
     const application_overview = await getApplicationOverview(id);
     const top_3_benefits = await getTop3benefits(id);
